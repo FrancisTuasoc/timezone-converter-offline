@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  // Curated Major World Cities / Zones
+  // Curated Major World Cities / Zones (100% Free Built-in IANA Timezones)
   const CURATED_ZONES = [
     { tz: 'UTC', label: 'UTC — Coordinated Universal Time' },
     { tz: 'America/New_York', label: 'New York, USA (Eastern)' },
@@ -57,6 +57,11 @@
     { tz: 'Pacific/Auckland', label: 'Auckland, New Zealand' }
   ];
 
+  const CURATED_MAP = new Map();
+  for (let i = 0; i < CURATED_ZONES.length; i++) {
+    CURATED_MAP.set(CURATED_ZONES[i].tz, CURATED_ZONES[i].label);
+  }
+
   function getAllSupportedTimezones() {
     let list = [];
     if (typeof Intl !== 'undefined' && typeof Intl.supportedValuesOf === 'function') {
@@ -76,13 +81,72 @@
 
   const ALL_TIMEZONES = getAllSupportedTimezones();
 
+  // ==========================================================================
+  // CACHED INTL FORMATTERS (ELIMINATES MOBILE & SEARCH LAG)
+  // ==========================================================================
+  const partsFormatterCache = new Map();
+  const dateFormatterCache = new Map();
+  const shortZoneFormatterCache = new Map();
+
+  function getPartsFormatter(timeZone) {
+    let fmt = partsFormatterCache.get(timeZone);
+    if (!fmt) {
+      fmt = new Intl.DateTimeFormat('en-US', {
+        timeZone: timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23'
+      });
+      partsFormatterCache.set(timeZone, fmt);
+    }
+    return fmt;
+  }
+
+  function getDateFormatter(timeZone) {
+    let fmt = dateFormatterCache.get(timeZone);
+    if (!fmt) {
+      fmt = new Intl.DateTimeFormat('en-US', {
+        timeZone: timeZone,
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
+      });
+      dateFormatterCache.set(timeZone, fmt);
+    }
+    return fmt;
+  }
+
+  function getShortZoneFormatter(timeZone) {
+    let fmt = shortZoneFormatterCache.get(timeZone);
+    if (!fmt) {
+      fmt = new Intl.DateTimeFormat('en-US', {
+        timeZone: timeZone,
+        timeZoneName: 'short'
+      });
+      shortZoneFormatterCache.set(timeZone, fmt);
+    }
+    return fmt;
+  }
+
   // DOM Elements
+  const fromComboEl = document.getElementById('fromCombo');
+  const toComboEl = document.getElementById('toCombo');
+  const fromTzInput = document.getElementById('fromTz');
+  const toTzInput = document.getElementById('toTz');
   const fromSearch = document.getElementById('fromSearch');
   const toSearch = document.getElementById('toSearch');
   const fromClear = document.getElementById('fromClear');
   const toClear = document.getElementById('toClear');
-  const fromTzSelect = document.getElementById('fromTz');
-  const toTzSelect = document.getElementById('toTz');
+  const fromToggle = document.getElementById('fromToggle');
+  const toToggle = document.getElementById('toToggle');
+  const fromList = document.getElementById('fromList');
+  const toList = document.getElementById('toList');
+
   const dateInput = document.getElementById('dateInput');
   const timeInput = document.getElementById('timeInput');
   const fromOffsetEl = document.getElementById('fromOffset');
@@ -108,10 +172,9 @@
   const themeIcon = document.getElementById('themeIcon');
   const btnCopy = document.getElementById('btnCopy');
   const copyLabel = document.getElementById('copyLabel');
+  const timelineScroll = document.getElementById('timelineScroll');
   const timelineGrid = document.getElementById('timelineGrid');
-  const skyCanvas = document.getElementById('skyCanvas');
 
-  // Default to 12-hour format so AM / PM is clearly visible (user can switch to 24h anytime)
   let use12Hour = true;
 
   // Detect system theme
@@ -128,10 +191,10 @@
     currentTheme = theme;
     document.documentElement.setAttribute('data-theme', theme);
     if (theme === 'dark') {
-      themeLabel.textContent = 'Day Mode';
+      themeLabel.textContent = 'Light';
       themeIcon.innerHTML = SUN_SVG;
     } else {
-      themeLabel.textContent = 'Night Mode';
+      themeLabel.textContent = 'Dark';
       themeIcon.innerHTML = MOON_SVG;
     }
   }
@@ -158,17 +221,7 @@
    * Extract numerical date/time parts in a given IANA timezone for a UTC Date object
    */
   function getZonedParts(dateObj, timeZone) {
-    const dtf = new Intl.DateTimeFormat('en-US', {
-      timeZone: timeZone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hourCycle: 'h23'
-    });
-    const parts = dtf.formatToParts(dateObj);
+    const parts = getPartsFormatter(timeZone).formatToParts(dateObj);
     const map = {};
     for (let i = 0; i < parts.length; i++) {
       if (parts[i].type !== 'literal') {
@@ -180,17 +233,10 @@
   }
 
   /**
-   * Format date with hyphen separator instead of comma: e.g. "Sat - Nov 14, 2026"
+   * Format date with hyphen separator: e.g. "Sat - Nov 14, 2026"
    */
   function formatDateHyphenated(dateObj, timeZone) {
-    const dtf = new Intl.DateTimeFormat('en-US', {
-      timeZone: timeZone,
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-    const parts = dtf.formatToParts(dateObj);
+    const parts = getDateFormatter(timeZone).formatToParts(dateObj);
     let weekday = '';
     let month = '';
     let day = '';
@@ -209,14 +255,13 @@
    * Get short timezone abbreviation (e.g. "EST", "GMT+8", "UTC")
    */
   function getShortZoneName(dateObj, timeZone) {
-    const dtf = new Intl.DateTimeFormat('en-US', {
-      timeZone: timeZone,
-      timeZoneName: 'short'
-    });
-    const part = dtf.formatToParts(dateObj).find(function (p) {
-      return p.type === 'timeZoneName';
-    });
-    return part ? part.value : timeZone;
+    const parts = getShortZoneFormatter(timeZone).formatToParts(dateObj);
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i].type === 'timeZoneName') {
+        return parts[i].value;
+      }
+    }
+    return timeZone;
   }
 
   /**
@@ -234,12 +279,10 @@
    */
   function wallTimeToUtcDate(year, month, day, hour, minute, sourceTz) {
     const targetWallUTC = Date.UTC(year, month - 1, day, hour, minute, 0);
-    let guess = targetWallUTC;
-    for (let i = 0; i < 3; i++) {
-      const offsetMin = getOffsetMinutes(new Date(guess), sourceTz);
-      guess = targetWallUTC - offsetMin * 60000;
-    }
-    return new Date(guess);
+    const offset1 = getOffsetMinutes(new Date(targetWallUTC), sourceTz);
+    const guess1 = targetWallUTC - offset1 * 60000;
+    const offset2 = getOffsetMinutes(new Date(guess1), sourceTz);
+    return new Date(targetWallUTC - offset2 * 60000);
   }
 
   /**
@@ -260,95 +303,392 @@
     el.classList.remove('tod-day', 'tod-eve', 'tod-night');
     if (hour >= 7 && hour < 18) {
       el.classList.add('tod-day');
-      el.innerHTML = '<svg viewBox="0 0 24 24">' + SUN_SVG + '</svg><span>Daytime</span>';
+      el.innerHTML = '<svg viewBox="0 0 24 24">' + SUN_SVG + '</svg><span>Day</span>';
     } else if ((hour >= 5 && hour < 7) || (hour >= 18 && hour < 21)) {
       el.classList.add('tod-eve');
-      el.innerHTML = '<svg viewBox="0 0 24 24">' + TWILIGHT_SVG + '</svg><span>Evening</span>';
+      el.innerHTML = '<svg viewBox="0 0 24 24">' + TWILIGHT_SVG + '</svg><span>Eve</span>';
     } else {
       el.classList.add('tod-night');
       el.innerHTML = '<svg viewBox="0 0 24 24">' + MOON_SVG + '</svg><span>Night</span>';
     }
   }
 
-  /**
-   * Populate a timezone <select> dropdown with optional search filter
-   */
-  function populateSelect(selectEl, filterText, selectedTz, referenceDate) {
-    const query = (filterText || '').trim().toLowerCase();
-    const ref = referenceDate || new Date();
-    selectEl.innerHTML = '';
+  // ==========================================================================
+  // NON-BLOCKING TIMEZONE CATALOG & UNIFIED COMBOBOX
+  // ==========================================================================
+  const popularCatalog = [];
+  const allCatalog = [];
+  let popularWarmCursor = 0;
+  let allWarmCursor = 0;
 
-    const matchZone = function (tz, label, offsetStr) {
-      if (!query) return true;
-      const haystack = (tz + ' ' + (label || '') + ' ' + offsetStr)
-        .toLowerCase()
-        .replace(/_/g, ' ');
-      return haystack.includes(query);
-    };
-
-    const popularGroup = document.createElement('optgroup');
-    popularGroup.label = 'Major World Cities';
-    let popularCount = 0;
-
+  function initCatalog() {
     for (let i = 0; i < CURATED_ZONES.length; i++) {
       const item = CURATED_ZONES[i];
-      try {
-        const offsetMin = getOffsetMinutes(ref, item.tz);
-        const offsetStr = formatOffsetLabel(offsetMin);
-        if (matchZone(item.tz, item.label, offsetStr)) {
-          const opt = document.createElement('option');
-          opt.value = item.tz;
-          opt.textContent = item.label + ' (' + offsetStr + ')';
-          popularGroup.appendChild(opt);
-          popularCount++;
-        }
-      } catch (e) {}
+      popularCatalog.push({
+        tz: item.tz,
+        name: item.label,
+        offsetStr: null,
+        searchKey: (item.tz + ' ' + item.label).toLowerCase().replace(/_/g, ' ')
+      });
     }
-    if (popularCount > 0) {
-      selectEl.appendChild(popularGroup);
-    }
-
-    const allGroup = document.createElement('optgroup');
-    allGroup.label = 'All IANA Timezones';
-    let allCount = 0;
 
     for (let i = 0; i < ALL_TIMEZONES.length; i++) {
       const tz = ALL_TIMEZONES[i];
-      try {
-        const offsetMin = getOffsetMinutes(ref, tz);
-        const offsetStr = formatOffsetLabel(offsetMin);
-        if (matchZone(tz, '', offsetStr)) {
-          const opt = document.createElement('option');
-          opt.value = tz;
-          opt.textContent = tz.replace(/_/g, ' ') + ' (' + offsetStr + ')';
-          allGroup.appendChild(opt);
-          allCount++;
-        }
-      } catch (e) {}
+      const label = CURATED_MAP.get(tz) || '';
+      const displayName = tz.replace(/_/g, ' ');
+      allCatalog.push({
+        tz: tz,
+        name: displayName,
+        offsetStr: null,
+        searchKey: (tz + ' ' + displayName + ' ' + label).toLowerCase().replace(/_/g, ' ')
+      });
     }
-    if (allCount > 0) {
-      selectEl.appendChild(allGroup);
+  }
+
+  function resolveItemOffset(item, refDate) {
+    if (item.offsetStr !== null) return item.offsetStr;
+    try {
+      const offsetMin = getOffsetMinutes(refDate, item.tz);
+      item.offsetStr = formatOffsetLabel(offsetMin);
+      item.searchKey += ' ' + item.offsetStr.toLowerCase();
+    } catch (e) {
+      item.offsetStr = 'UTC';
+    }
+    return item.offsetStr;
+  }
+
+  function scheduleChunkedWarmup() {
+    const step = function () {
+      const ref = new Date();
+      if (popularWarmCursor < popularCatalog.length) {
+        const end = Math.min(popularWarmCursor + 12, popularCatalog.length);
+        for (let i = popularWarmCursor; i < end; i++) {
+          resolveItemOffset(popularCatalog[i], ref);
+        }
+        popularWarmCursor = end;
+        setTimeout(step, 16);
+        return;
+      }
+      if (allWarmCursor < allCatalog.length) {
+        const end = Math.min(allWarmCursor + 15, allCatalog.length);
+        for (let i = allWarmCursor; i < end; i++) {
+          resolveItemOffset(allCatalog[i], ref);
+        }
+        allWarmCursor = end;
+        setTimeout(step, 20);
+      }
+    };
+    setTimeout(step, 25);
+  }
+
+  function formatZoneDisplay(tz, refDate) {
+    const ref = refDate || new Date();
+    let offsetStr = 'UTC+00:00';
+    try {
+      offsetStr = formatOffsetLabel(getOffsetMinutes(ref, tz));
+    } catch (e) {}
+    const curatedLabel = CURATED_MAP.get(tz);
+    const label = curatedLabel ? curatedLabel : tz.replace(/_/g, ' ');
+    return label + ' (' + offsetStr + ')';
+  }
+
+  function createComboboxController(config) {
+    const { comboEl, hiddenInput, searchInput, clearBtn, toggleBtn, listEl, onSelect } = config;
+    let isOpen = false;
+    let activeIndex = -1;
+    let currentOptions = [];
+
+    function syncDisplayFromValue() {
+      const tz = hiddenInput.value || 'UTC';
+      searchInput.value = formatZoneDisplay(tz, new Date());
+      clearBtn.hidden = true;
     }
 
-    const options = selectEl.options;
-    let found = false;
-    for (let i = 0; i < options.length; i++) {
-      if (options[i].value === selectedTz) {
-        selectEl.selectedIndex = i;
-        found = true;
-        break;
+    function renderList(filterQuery) {
+      const ref = new Date();
+      const query = (filterQuery || '').trim().toLowerCase();
+      const selectedTz = hiddenInput.value;
+      listEl.innerHTML = '';
+      currentOptions = [];
+      activeIndex = -1;
+
+      // Ensure popular offsets are resolved if searching by offset
+      if (query && (query.includes('utc') || query.includes('+') || query.includes('-'))) {
+        for (let i = popularWarmCursor; i < popularCatalog.length; i++) {
+          resolveItemOffset(popularCatalog[i], ref);
+        }
+        popularWarmCursor = popularCatalog.length;
+      }
+
+      const frag = document.createDocumentFragment();
+
+      const matchedPopular = [];
+      for (let i = 0; i < popularCatalog.length; i++) {
+        const item = popularCatalog[i];
+        if (!query || item.searchKey.includes(query)) {
+          matchedPopular.push(item);
+        }
+      }
+
+      if (matchedPopular.length > 0) {
+        const groupHeader = document.createElement('div');
+        groupHeader.className = 'combo-group-label';
+        groupHeader.textContent = 'Major Cities';
+        frag.appendChild(groupHeader);
+
+        for (let i = 0; i < matchedPopular.length; i++) {
+          const item = matchedPopular[i];
+          const el = createOptionEl(item, selectedTz, ref);
+          frag.appendChild(el);
+        }
+      }
+
+      if (query) {
+        const matchedAll = [];
+        const maxSearchMatches = 60;
+        for (let i = 0; i < allCatalog.length; i++) {
+          const item = allCatalog[i];
+          if (item.searchKey.includes(query)) {
+            matchedAll.push(item);
+            if (matchedAll.length >= maxSearchMatches) break;
+          }
+        }
+
+        if (matchedAll.length > 0) {
+          const groupHeader = document.createElement('div');
+          groupHeader.className = 'combo-group-label';
+          groupHeader.textContent = 'IANA Timezones';
+          frag.appendChild(groupHeader);
+
+          for (let i = 0; i < matchedAll.length; i++) {
+            const item = matchedAll[i];
+            const el = createOptionEl(item, selectedTz, ref);
+            frag.appendChild(el);
+          }
+        }
+      } else {
+        // When query is empty, if selectedTz is not in Major Cities, show it right below
+        if (selectedTz && !CURATED_MAP.has(selectedTz)) {
+          for (let i = 0; i < allCatalog.length; i++) {
+            if (allCatalog[i].tz === selectedTz) {
+              const groupHeader = document.createElement('div');
+              groupHeader.className = 'combo-group-label';
+              groupHeader.textContent = 'Current Selection';
+              frag.appendChild(groupHeader);
+              frag.appendChild(createOptionEl(allCatalog[i], selectedTz, ref));
+              break;
+            }
+          }
+        }
+        const hint = document.createElement('div');
+        hint.className = 'combo-empty';
+        hint.textContent = 'Type any city or region to search 400+ IANA timezones';
+        frag.appendChild(hint);
+      }
+
+      if (currentOptions.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'combo-empty';
+        empty.textContent = 'No matching timezone found';
+        frag.appendChild(empty);
+      }
+
+      listEl.appendChild(frag);
+    }
+
+    function createOptionEl(item, selectedTz, refDate) {
+      const opt = document.createElement('div');
+      opt.className = 'combo-option' + (item.tz === selectedTz ? ' is-selected' : '');
+      opt.setAttribute('role', 'option');
+      opt.setAttribute('aria-selected', item.tz === selectedTz ? 'true' : 'false');
+      opt.dataset.tz = item.tz;
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'combo-opt-name';
+      nameSpan.textContent = item.name;
+
+      const offsetSpan = document.createElement('span');
+      offsetSpan.className = 'combo-opt-offset';
+      offsetSpan.textContent = resolveItemOffset(item, refDate);
+
+      opt.appendChild(nameSpan);
+      opt.appendChild(offsetSpan);
+
+      const optionIndex = currentOptions.length;
+      currentOptions.push({ el: opt, tz: item.tz });
+
+      opt.addEventListener('mousedown', function (e) {
+        // Prevent input blur before selection completes
+        e.preventDefault();
+      });
+
+      opt.addEventListener('click', function () {
+        selectTimezone(item.tz);
+      });
+
+      opt.addEventListener('mouseenter', function () {
+        setActiveIndex(optionIndex, false);
+      });
+
+      return opt;
+    }
+
+    function setActiveIndex(idx, scrollOptionIntoDropdown) {
+      if (activeIndex >= 0 && currentOptions[activeIndex]) {
+        currentOptions[activeIndex].el.classList.remove('is-active');
+      }
+      activeIndex = idx;
+      if (activeIndex >= 0 && currentOptions[activeIndex]) {
+        const targetEl = currentOptions[activeIndex].el;
+        targetEl.classList.add('is-active');
+        if (scrollOptionIntoDropdown) {
+          const top = targetEl.offsetTop;
+          const bottom = top + targetEl.offsetHeight;
+          if (top < listEl.scrollTop) {
+            listEl.scrollTop = top - 4;
+          } else if (bottom > listEl.scrollTop + listEl.clientHeight) {
+            listEl.scrollTop = bottom - listEl.clientHeight + 4;
+          }
+        }
       }
     }
-    if (!found && options.length > 0) {
-      selectEl.selectedIndex = 0;
+
+    function openDropdown(initialQuery) {
+      if (!isOpen) {
+        isOpen = true;
+        comboEl.classList.add('is-open');
+        searchInput.setAttribute('aria-expanded', 'true');
+        listEl.hidden = false;
+      }
+      renderList(initialQuery);
+
+      // Scroll internal dropdown list only — never touches window scroll
+      if (!initialQuery) {
+        const selectedOpt = listEl.querySelector('.combo-option.is-selected');
+        if (selectedOpt) {
+          listEl.scrollTop = Math.max(0, selectedOpt.offsetTop - listEl.clientHeight / 2 + 16);
+        } else {
+          listEl.scrollTop = 0;
+        }
+      } else {
+        listEl.scrollTop = 0;
+      }
     }
+
+    function closeDropdown() {
+      if (!isOpen) return;
+      isOpen = false;
+      comboEl.classList.remove('is-open');
+      searchInput.setAttribute('aria-expanded', 'false');
+      listEl.hidden = true;
+      syncDisplayFromValue();
+    }
+
+    function selectTimezone(tz) {
+      hiddenInput.value = tz;
+      closeDropdown();
+      searchInput.blur();
+      onSelect(tz);
+    }
+
+    searchInput.addEventListener('focus', function () {
+      searchInput.value = '';
+      clearBtn.hidden = true;
+      openDropdown('');
+    });
+
+    searchInput.addEventListener('input', function () {
+      const q = searchInput.value;
+      clearBtn.hidden = !q;
+      openDropdown(q);
+      if (currentOptions.length > 0) {
+        setActiveIndex(0, false);
+      }
+    });
+
+    searchInput.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (!isOpen) {
+          openDropdown('');
+        }
+        if (currentOptions.length > 0) {
+          const next = activeIndex + 1 < currentOptions.length ? activeIndex + 1 : 0;
+          setActiveIndex(next, true);
+        }
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (!isOpen) {
+          openDropdown('');
+        }
+        if (currentOptions.length > 0) {
+          const prev = activeIndex - 1 >= 0 ? activeIndex - 1 : currentOptions.length - 1;
+          setActiveIndex(prev, true);
+        }
+      } else if (e.key === 'Enter') {
+        if (isOpen && currentOptions.length > 0) {
+          e.preventDefault();
+          const chosen = activeIndex >= 0 ? currentOptions[activeIndex] : currentOptions[0];
+          if (chosen) {
+            selectTimezone(chosen.tz);
+          }
+        }
+      } else if (e.key === 'Escape') {
+        if (isOpen) {
+          e.preventDefault();
+          closeDropdown();
+          searchInput.blur();
+        }
+      }
+    });
+
+    clearBtn.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+    });
+
+    clearBtn.addEventListener('click', function () {
+      searchInput.value = '';
+      clearBtn.hidden = true;
+      openDropdown('');
+      searchInput.focus({ preventScroll: true });
+    });
+
+    toggleBtn.addEventListener('mousedown', function (e) {
+      e.preventDefault();
+    });
+
+    toggleBtn.addEventListener('click', function () {
+      if (isOpen) {
+        closeDropdown();
+        searchInput.blur();
+      } else {
+        searchInput.focus({ preventScroll: true });
+      }
+    });
+
+    document.addEventListener('mousedown', function (e) {
+      if (isOpen && !comboEl.contains(e.target)) {
+        closeDropdown();
+      }
+    });
+
+    return {
+      setValue: function (tz) {
+        hiddenInput.value = tz;
+        syncDisplayFromValue();
+      },
+      getValue: function () {
+        return hiddenInput.value;
+      },
+      refreshDisplay: syncDisplayFromValue
+    };
   }
 
   /**
    * Set Date & Time inputs to a specific UTC Date expressed in the "From" timezone
    */
   function setInputsFromUtcDate(utcDate) {
-    const fromTz = fromTzSelect.value || 'UTC';
+    const fromTz = fromTzInput.value || 'UTC';
     const parts = getZonedParts(utcDate, fromTz);
     const yyyy = String(parts.year).padStart(4, '0');
     const mm = String(parts.month).padStart(2, '0');
@@ -361,7 +701,7 @@
   }
 
   /**
-   * Format timeline hour with full descriptive "AM" / "PM" instead of "a" / "p"
+   * Format timeline hour with descriptive AM / PM or 24h
    */
   function formatTimelineHour(h) {
     if (!use12Hour) {
@@ -372,11 +712,53 @@
     return h12 + ' ' + period;
   }
 
-  /**
-   * Render the 24-hour visual comparison scrubber
-   */
-  function renderTimeline(year, month, day, activeHour, minute, fromTz, toTz) {
+  // ==========================================================================
+  // REUSABLE 24-HOUR TIMELINE DOM (NO SCROLL-TO-BOTTOM BUG, NO DOM THRASHING)
+  // ==========================================================================
+  const timelineSlots = [];
+  let activeTimelineMinute = 0;
+
+  function initTimelineDOM() {
     timelineGrid.innerHTML = '';
+    const frag = document.createDocumentFragment();
+
+    for (let h = 0; h < 24; h++) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'hour-slot slot-day';
+
+      const fromSpan = document.createElement('span');
+      fromSpan.className = 'slot-from';
+
+      const divSpan = document.createElement('span');
+      divSpan.className = 'slot-divider';
+
+      const toSpan = document.createElement('span');
+      toSpan.className = 'slot-to';
+
+      btn.appendChild(fromSpan);
+      btn.appendChild(divSpan);
+      btn.appendChild(toSpan);
+
+      btn.addEventListener('click', function () {
+        timeInput.value =
+          String(h).padStart(2, '0') + ':' + String(activeTimelineMinute).padStart(2, '0');
+        convertAndRender({ scrollTimeline: true });
+      });
+
+      timelineSlots.push({ btn: btn, fromSpan: fromSpan, toSpan: toSpan });
+      frag.appendChild(btn);
+    }
+
+    timelineGrid.appendChild(frag);
+  }
+
+  /**
+   * Update the 24-hour visual comparison scrubber in-place and horizontally center active slot
+   */
+  function renderTimeline(year, month, day, activeHour, minute, fromTz, toTz, shouldScrollHorizontally) {
+    activeTimelineMinute = minute;
+
     for (let h = 0; h < 24; h++) {
       const slotUtc = wallTimeToUtcDate(year, month, day, h, minute, fromTz);
       const toParts = getZonedParts(slotUtc, toTz);
@@ -385,54 +767,50 @@
       const bothWork = h >= 9 && h < 17 && toH >= 9 && toH < 17;
       const bothDay = h >= 7 && h < 21 && toH >= 7 && toH < 21;
 
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'hour-slot ';
+      const slotObj = timelineSlots[h];
+      let cls = 'hour-slot ';
       if (bothWork) {
-        btn.className += 'slot-work';
+        cls += 'slot-work';
       } else if (bothDay) {
-        btn.className += 'slot-day';
+        cls += 'slot-day';
       } else {
-        btn.className += 'slot-night';
+        cls += 'slot-night';
       }
 
       if (h === activeHour) {
-        btn.className += ' is-selected';
+        cls += ' is-selected';
       }
+
+      slotObj.btn.className = cls;
 
       const fromLabel = formatTimelineHour(h);
       const toLabel = formatTimelineHour(toH);
-      btn.title = 'Select ' + fromLabel + ' (' + toLabel + ' in target timezone)';
-      btn.innerHTML =
-        '<span class="slot-from">' +
-        fromLabel +
-        '</span>' +
-        '<span class="slot-divider"></span>' +
-        '<span class="slot-to">' +
-        toLabel +
-        '</span>';
-
-      btn.addEventListener('click', function () {
-        timeInput.value = String(h).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
-        convertAndRender();
-      });
-
-      timelineGrid.appendChild(btn);
+      slotObj.btn.title = 'Select ' + fromLabel + ' (' + toLabel + ' in target timezone)';
+      slotObj.fromSpan.textContent = fromLabel;
+      slotObj.toSpan.textContent = toLabel;
     }
 
-    // Auto-scroll active hour slot into view smoothly
-    const selectedEl = timelineGrid.querySelector('.hour-slot.is-selected');
-    if (selectedEl && typeof selectedEl.scrollIntoView === 'function') {
-      selectedEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    // Strictly horizontal scroll inside .timeline-scroll (NEVER scrolls the page vertically!)
+    if (shouldScrollHorizontally && timelineScroll && timelineSlots[activeHour]) {
+      const selectedBtn = timelineSlots[activeHour].btn;
+      const targetLeft =
+        selectedBtn.offsetLeft -
+        timelineScroll.clientWidth / 2 +
+        selectedBtn.offsetWidth / 2;
+      timelineScroll.scrollTo({
+        left: Math.max(0, targetLeft),
+        behavior: 'smooth'
+      });
     }
   }
 
   /**
    * Perform instant timezone conversion and update UI
    */
-  function convertAndRender() {
-    const fromTz = fromTzSelect.value;
-    const toTz = toTzSelect.value;
+  function convertAndRender(options) {
+    const opts = options || { scrollTimeline: true };
+    const fromTz = fromTzInput.value;
+    const toTz = toTzInput.value;
     const dateVal = dateInput.value;
     const timeVal = timeInput.value;
 
@@ -465,7 +843,7 @@
     updateTimeOfDayBadge(fromTodEl, hour);
     updateTimeOfDayBadge(toTodEl, toParts.hour);
 
-    // Source summary line with "Sat - Nov 14, 2026" format + short zone tag
+    // Source summary line
     const fromTimeStr = formatClockParts(hour, minute, use12Hour);
     fromFormattedDateEl.textContent =
       formatDateHyphenated(utcInstant, fromTz) + ' • ' + fromTimeStr.full;
@@ -481,7 +859,7 @@
       resultPeriodEl.hidden = true;
     }
 
-    // Target converted date with "Sat - Nov 14, 2026" format
+    // Target converted date
     resultDateEl.textContent = formatDateHyphenated(utcInstant, toTz);
     toZoneShortEl.textContent = getShortZoneName(utcInstant, toTz);
 
@@ -494,7 +872,7 @@
       const absMin = Math.abs(diffMin);
       const h = Math.floor(absMin / 60);
       const m = absMin % 60;
-      diffBadgeEl.textContent = sign + h + (m ? ' hr ' + m + ' min' : h === 1 ? ' hr' : ' hrs');
+      diffBadgeEl.textContent = sign + h + (m ? 'h ' + m + 'm' : 'h');
     }
 
     // Day boundary comparison
@@ -507,16 +885,16 @@
     } else {
       dayShiftEl.hidden = false;
       if (dayDelta === 1) {
-        dayShiftEl.textContent = '+1 day (Tomorrow)';
+        dayShiftEl.textContent = '+1 day';
       } else if (dayDelta === -1) {
-        dayShiftEl.textContent = '-1 day (Yesterday)';
+        dayShiftEl.textContent = '-1 day';
       } else {
         dayShiftEl.textContent = (dayDelta > 0 ? '+' : '') + dayDelta + ' days';
       }
     }
 
     // Update 24h timeline scrubber
-    renderTimeline(year, month, day, hour, minute, fromTz, toTz);
+    renderTimeline(year, month, day, hour, minute, fromTz, toTz, opts.scrollTimeline !== false);
   }
 
   /**
@@ -546,7 +924,7 @@
    * Shift current input time by `deltaMinutes`
    */
   function shiftInputTime(deltaMinutes) {
-    const fromTz = fromTzSelect.value || 'UTC';
+    const fromTz = fromTzInput.value || 'UTC';
     const dateParts = (dateInput.value || '').split('-').map(Number);
     const timeParts = (timeInput.value || '').split(':').map(Number);
     if (dateParts.length < 3 || timeParts.length < 2) return;
@@ -561,312 +939,83 @@
     );
     const shifted = new Date(utcInstant.getTime() + deltaMinutes * 60000);
     setInputsFromUtcDate(shifted);
-    convertAndRender();
+    convertAndRender({ scrollTimeline: true });
   }
 
   // ==========================================================================
-  // LIVE 60FPS SKY ENGINE (MOVING CLOUDS & MOVING STARS)
+  // INITIALIZATION & EVENT LISTENERS
   // ==========================================================================
-  function initSkyCanvas() {
-    if (!skyCanvas || !skyCanvas.getContext) return;
-    const ctx = skyCanvas.getContext('2d');
-    let width = 0;
-    let height = 0;
-    let dpr = Math.min(window.devicePixelRatio || 1, 2);
-
-    const stars = [];
-    const STAR_COLORS = ['#ffffff', '#e0f2fe', '#bae6fd', '#fef9c3'];
-    const STAR_COUNT = 150;
-
-    for (let i = 0; i < STAR_COUNT; i++) {
-      const z = 0.25 + Math.random() * 0.75;
-      stars.push({
-        xFrac: Math.random(),
-        yFrac: Math.random() * 0.88,
-        z: z,
-        radius: (0.6 + Math.random() * 1.5) * z,
-        speedX: (0.008 + Math.random() * 0.016) * z,
-        speedY: (Math.random() - 0.5) * 0.003 * z,
-        twinkleSpeed: 0.015 + Math.random() * 0.03,
-        twinklePhase: Math.random() * Math.PI * 2,
-        color: STAR_COLORS[i % STAR_COLORS.length]
-      });
-    }
-
-    const meteors = [];
-    function maybeSpawnMeteor() {
-      if (currentTheme !== 'dark') return;
-      if (meteors.length < 2 && Math.random() < 0.007) {
-        meteors.push({
-          x: Math.random() * width * 0.85 + width * 0.1,
-          y: Math.random() * height * 0.35,
-          vx: -(6 + Math.random() * 5),
-          vy: 3 + Math.random() * 3,
-          len: 65 + Math.random() * 55,
-          life: 0,
-          maxLife: 45 + Math.random() * 20
-        });
-      }
-    }
-
-    const clouds = [];
-    const CLOUD_COUNT = 11;
-
-    function createCloud(index) {
-      const layer = index % 3;
-      const z = layer === 0 ? 0.45 : layer === 1 ? 0.72 : 1.0;
-      const baseScale = (0.62 + Math.random() * 0.48) * z;
-      const puffs = [
-        { dx: -68, dy: 14, rx: 46, ry: 26 },
-        { dx: -32, dy: -2, rx: 56, ry: 34 },
-        { dx: 12, dy: -10, rx: 64, ry: 38 },
-        { dx: 54, dy: 0, rx: 50, ry: 30 },
-        { dx: 86, dy: 14, rx: 38, ry: 22 },
-        { dx: -8, dy: 16, rx: 58, ry: 26 },
-        { dx: 34, dy: 18, rx: 52, ry: 24 }
-      ];
-      return {
-        xFrac: index / CLOUD_COUNT + (Math.random() * 0.06 - 0.03),
-        yFrac: 0.06 + (index % 5) * 0.16 + Math.random() * 0.05,
-        z: z,
-        scale: baseScale,
-        speed: (8 + Math.random() * 10) * z,
-        bobPhase: Math.random() * Math.PI * 2,
-        bobSpeed: 0.3 + Math.random() * 0.35,
-        puffs: puffs
-      };
-    }
-
-    for (let i = 0; i < CLOUD_COUNT; i++) {
-      clouds.push(createCloud(i));
-    }
-
-    function resize() {
-      width = window.innerWidth;
-      height = window.innerHeight;
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
-      skyCanvas.width = Math.floor(width * dpr);
-      skyCanvas.height = Math.floor(height * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    window.addEventListener('resize', resize);
-    resize();
-
-    let nightAlpha = currentTheme === 'dark' ? 1 : 0;
-    let lastTime = performance.now();
-
-    function drawVolumetricCloud(c, px, py, isNightFactor) {
-      const viewportFactor = width < 540 ? 0.62 : width < 820 ? 0.82 : 1.0;
-      const s = c.scale * viewportFactor;
-      ctx.save();
-      ctx.translate(px, py);
-
-      for (let i = 0; i < c.puffs.length; i++) {
-        const p = c.puffs[i];
-        const cx = p.dx * s;
-        const cy = p.dy * s;
-        const rx = p.rx * s;
-        const ry = p.ry * s;
-
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.scale(1, ry / rx);
-
-        const grad = ctx.createRadialGradient(-rx * 0.18, -rx * 0.28, rx * 0.05, 0, rx * 0.1, rx);
-
-        if (isNightFactor < 0.5) {
-          const alpha = 0.36 * c.z;
-          grad.addColorStop(0, 'rgba(255, 255, 255, ' + alpha * 1.25 + ')');
-          grad.addColorStop(0.5, 'rgba(248, 252, 255, ' + alpha * 0.9 + ')');
-          grad.addColorStop(0.82, 'rgba(214, 234, 252, ' + alpha * 0.45 + ')');
-          grad.addColorStop(1, 'rgba(186, 218, 248, 0)');
-        } else {
-          const alpha = 0.15 * c.z;
-          grad.addColorStop(0, 'rgba(148, 163, 184, ' + alpha + ')');
-          grad.addColorStop(0.55, 'rgba(51, 65, 85, ' + alpha * 0.75 + ')');
-          grad.addColorStop(1, 'rgba(15, 23, 42, 0)');
-        }
-
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(0, 0, rx, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
-
-      ctx.restore();
-    }
-
-    function animate(now) {
-      const dt = Math.min((now - lastTime) / 1000, 0.1);
-      lastTime = now;
-
-      const targetNight = currentTheme === 'dark' ? 1 : 0;
-      nightAlpha += (targetNight - nightAlpha) * Math.min(1, dt * 4);
-
-      ctx.clearRect(0, 0, width, height);
-
-      if (nightAlpha > 0.01) {
-        ctx.save();
-        for (let i = 0; i < stars.length; i++) {
-          const st = stars[i];
-          st.xFrac += ((st.speedX * dt) / Math.max(width, 600)) * 60;
-          st.yFrac += ((st.speedY * dt) / Math.max(height, 600)) * 60;
-
-          if (st.xFrac > 1.02) st.xFrac = -0.02;
-          if (st.xFrac < -0.02) st.xFrac = 1.02;
-          if (st.yFrac > 0.9) st.yFrac = 0.02;
-          if (st.yFrac < 0.01) st.yFrac = 0.88;
-
-          st.twinklePhase += st.twinkleSpeed;
-          const twinkle = 0.45 + 0.55 * Math.sin(st.twinklePhase);
-          const alpha = twinkle * nightAlpha * st.z;
-
-          const sx = st.xFrac * width;
-          const sy = st.yFrac * height;
-
-          ctx.globalAlpha = alpha;
-          ctx.fillStyle = st.color;
-          ctx.beginPath();
-          ctx.arc(sx, sy, st.radius, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        maybeSpawnMeteor();
-        for (let i = meteors.length - 1; i >= 0; i--) {
-          const m = meteors[i];
-          m.x += m.vx;
-          m.y += m.vy;
-          m.life += 1;
-
-          const progress = m.life / m.maxLife;
-          const mAlpha = Math.sin(progress * Math.PI) * nightAlpha;
-
-          const tailX = m.x - m.vx * (m.len / 8);
-          const tailY = m.y - m.vy * (m.len / 8);
-          const mGrad = ctx.createLinearGradient(m.x, m.y, tailX, tailY);
-          mGrad.addColorStop(0, 'rgba(255, 255, 255, ' + mAlpha + ')');
-          mGrad.addColorStop(0.4, 'rgba(186, 230, 253, ' + mAlpha * 0.5 + ')');
-          mGrad.addColorStop(1, 'rgba(186, 230, 253, 0)');
-
-          ctx.strokeStyle = mGrad;
-          ctx.lineWidth = 2;
-          ctx.lineCap = 'round';
-          ctx.beginPath();
-          ctx.moveTo(m.x, m.y);
-          ctx.lineTo(tailX, tailY);
-          ctx.stroke();
-
-          if (m.life >= m.maxLife) {
-            meteors.splice(i, 1);
-          }
-        }
-        ctx.restore();
-      }
-
-      const wrapMargin = 220;
-      const totalSpan = width + wrapMargin * 2;
-
-      for (let i = 0; i < clouds.length; i++) {
-        const c = clouds[i];
-        c.xFrac += (c.speed * dt) / totalSpan;
-        if (c.xFrac > 1) {
-          c.xFrac -= 1;
-        }
-        c.bobPhase += c.bobSpeed * dt;
-
-        const px = -wrapMargin + c.xFrac * totalSpan;
-        const py = c.yFrac * height + Math.sin(c.bobPhase) * 5 * c.z;
-
-        drawVolumetricCloud(c, px, py, nightAlpha);
-      }
-
-      requestAnimationFrame(animate);
-    }
-
-    requestAnimationFrame(animate);
-  }
-
-  // Initialize defaults
   const detectedLocalTz =
     (Intl.DateTimeFormat().resolvedOptions && Intl.DateTimeFormat().resolvedOptions().timeZone) || 'UTC';
   const defaultToTz = detectedLocalTz === 'UTC' ? 'America/New_York' : 'UTC';
 
   applyTheme(currentTheme);
   updateFormatToggleUI();
+  initTimelineDOM();
+
+  const fromCombo = createComboboxController({
+    comboEl: fromComboEl,
+    hiddenInput: fromTzInput,
+    searchInput: fromSearch,
+    clearBtn: fromClear,
+    toggleBtn: fromToggle,
+    listEl: fromList,
+    onSelect: function () {
+      convertAndRender({ scrollTimeline: true });
+    }
+  });
+
+  const toCombo = createComboboxController({
+    comboEl: toComboEl,
+    hiddenInput: toTzInput,
+    searchInput: toSearch,
+    clearBtn: toClear,
+    toggleBtn: toToggle,
+    listEl: toList,
+    onSelect: function () {
+      convertAndRender({ scrollTimeline: true });
+    }
+  });
 
   const nowInit = new Date();
-  populateSelect(fromTzSelect, '', detectedLocalTz, nowInit);
-  populateSelect(toTzSelect, '', defaultToTz, nowInit);
+  initCatalog();
+  fromCombo.setValue(detectedLocalTz);
+  toCombo.setValue(defaultToTz);
   setInputsFromUtcDate(nowInit);
-  convertAndRender();
+  convertAndRender({ scrollTimeline: true });
 
-  initSkyCanvas();
+  // Warm up remaining IANA offsets in tiny non-blocking chunks
+  scheduleChunkedWarmup();
 
-  // Event Listeners
-  dateInput.addEventListener('input', convertAndRender);
-  dateInput.addEventListener('change', convertAndRender);
-  timeInput.addEventListener('input', convertAndRender);
-  timeInput.addEventListener('change', convertAndRender);
-  fromTzSelect.addEventListener('change', convertAndRender);
-  toTzSelect.addEventListener('change', convertAndRender);
-
-  fromSearch.addEventListener('input', function () {
-    fromClear.hidden = !fromSearch.value;
-    const current = fromTzSelect.value;
-    populateSelect(fromTzSelect, fromSearch.value, current, new Date());
-    convertAndRender();
+  dateInput.addEventListener('input', function () {
+    convertAndRender({ scrollTimeline: false });
   });
-
-  fromClear.addEventListener('click', function () {
-    fromSearch.value = '';
-    fromClear.hidden = true;
-    populateSelect(fromTzSelect, '', fromTzSelect.value, new Date());
-    convertAndRender();
-    fromSearch.focus();
+  dateInput.addEventListener('change', function () {
+    convertAndRender({ scrollTimeline: true });
   });
-
-  toSearch.addEventListener('input', function () {
-    toClear.hidden = !toSearch.value;
-    const current = toTzSelect.value;
-    populateSelect(toTzSelect, toSearch.value, current, new Date());
-    convertAndRender();
+  timeInput.addEventListener('input', function () {
+    convertAndRender({ scrollTimeline: false });
   });
-
-  toClear.addEventListener('click', function () {
-    toSearch.value = '';
-    toClear.hidden = true;
-    populateSelect(toTzSelect, '', toTzSelect.value, new Date());
-    convertAndRender();
-    toSearch.focus();
+  timeInput.addEventListener('change', function () {
+    convertAndRender({ scrollTimeline: true });
   });
 
   btnSwap.addEventListener('click', function () {
     btnSwap.classList.add('is-rotating');
     setTimeout(function () {
       btnSwap.classList.remove('is-rotating');
-    }, 280);
+    }, 220);
 
-    const tempTz = fromTzSelect.value;
-    const tempSearch = fromSearch.value;
-    const targetTz = toTzSelect.value;
-    const targetSearch = toSearch.value;
-
-    fromSearch.value = targetSearch;
-    toSearch.value = tempSearch;
-    fromClear.hidden = !fromSearch.value;
-    toClear.hidden = !toSearch.value;
-
-    const ref = new Date();
-    populateSelect(fromTzSelect, fromSearch.value, targetTz, ref);
-    populateSelect(toTzSelect, toSearch.value, tempTz, ref);
-    convertAndRender();
+    const tempFrom = fromCombo.getValue();
+    const tempTo = toCombo.getValue();
+    fromCombo.setValue(tempTo);
+    toCombo.setValue(tempFrom);
+    convertAndRender({ scrollTimeline: true });
   });
 
   btnNow.addEventListener('click', function () {
     setInputsFromUtcDate(new Date());
-    convertAndRender();
+    convertAndRender({ scrollTimeline: true });
   });
 
   btnMinus1h.addEventListener('click', function () {
@@ -881,7 +1030,7 @@
     if (!use12Hour) {
       use12Hour = true;
       updateFormatToggleUI();
-      convertAndRender();
+      convertAndRender({ scrollTimeline: false });
     }
   });
 
@@ -889,7 +1038,7 @@
     if (use12Hour) {
       use12Hour = false;
       updateFormatToggleUI();
-      convertAndRender();
+      convertAndRender({ scrollTimeline: false });
     }
   });
 
@@ -909,9 +1058,9 @@
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(textToCopy).catch(function () {});
     }
-    copyLabel.textContent = 'Copied!';
+    copyLabel.textContent = 'Copied';
     setTimeout(function () {
       copyLabel.textContent = 'Copy';
-    }, 1400);
+    }, 1200);
   });
 })();

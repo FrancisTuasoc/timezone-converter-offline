@@ -8,75 +8,44 @@
   <script src="script.js" defer></script>
 </head>
 <body>
-  <!-- LIVE ATMOSPHERIC SKY SCENE -->
-  <div class="sky-scene" aria-hidden="true">
-    <div class="day-celestial" id="dayCelestial">
-      <div class="sun-rays"></div>
-      <div class="sun-halo"></div>
-      <div class="sun-sphere"></div>
-    </div>
-
-    <div class="night-celestial" id="nightCelestial">
-      <div class="moon-aura"></div>
-      <div class="moon-sphere">
-        <svg class="moon-svg" viewBox="0 0 120 120">
-          <defs>
-            <radialGradient id="moon3DGrad" cx="35%" cy="30%" r="70%">
-              <stop offset="0%" stop-color="#ffffff"/>
-              <stop offset="45%" stop-color="#e0f2fe"/>
-              <stop offset="85%" stop-color="#7dd3fc"/>
-              <stop offset="100%" stop-color="#38bdf8"/>
-            </radialGradient>
-          </defs>
-          <path
-            fill="url(#moon3DGrad)"
-            d="M78.5 16.5A46 46 0 1 0 102.5 82.5 38 38 0 0 1 78.5 16.5z"
-          />
-          <circle cx="52" cy="68" r="5.5" fill="#bae6fd" opacity="0.45"/>
-          <circle cx="66" cy="84" r="3.8" fill="#7dd3fc" opacity="0.4"/>
-          <circle cx="42" cy="48" r="3.2" fill="#bae6fd" opacity="0.35"/>
-        </svg>
-      </div>
-    </div>
-
-    <canvas id="skyCanvas" class="sky-canvas"></canvas>
-    <div class="horizon-glow"></div>
-  </div>
-
-  <!-- FOREGROUND APPLICATION -->
   <main class="app">
-    <!-- TOP BAR -->
-    <header class="topbar">
-      <div class="brand">
+    <!-- PAGE TITLE HEADER ON TOP -->
+    <header class="page-header">
+      <div class="brand-badge">
         <span class="brand-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="9"/>
             <path d="M12 7v5l3 2"/>
           </svg>
         </span>
-        <h1 class="app-title">Timezone Converter</h1>
+        <h1 class="app-title">World Timezone Converter</h1>
       </div>
+      <p class="app-subtitle">Compare local time, UTC offsets, and 24-hour overlap across cities worldwide</p>
+    </header>
 
+    <!-- COMPACT CONTROLS BAR -->
+    <div class="topbar">
+      <span class="topbar-label">Quick Controls</span>
       <div class="toolbar">
         <div class="step-group" role="group" aria-label="Quick time adjustment">
-          <button type="button" id="btnMinus1h" class="btn-step" title="Subtract 1 hour">-1 hr</button>
+          <button type="button" id="btnMinus1h" class="btn-step" title="Subtract 1 hour">-1h</button>
           <button type="button" id="btnNow" class="btn-step" title="Reset to current time">Now</button>
-          <button type="button" id="btnPlus1h" class="btn-step" title="Add 1 hour">+1 hr</button>
+          <button type="button" id="btnPlus1h" class="btn-step" title="Add 1 hour">+1h</button>
         </div>
 
         <div class="segmented-toggle" id="formatToggle" role="group" aria-label="Time format">
-          <button type="button" id="btn12h" class="seg-option" aria-pressed="true">12h (AM/PM)</button>
+          <button type="button" id="btn12h" class="seg-option is-active" aria-pressed="true">12h</button>
           <button type="button" id="btn24h" class="seg-option" aria-pressed="false">24h</button>
         </div>
 
-        <button type="button" id="btnTheme" class="btn-tool" title="Switch Day / Night theme">
+        <button type="button" id="btnTheme" class="btn-tool" title="Switch Light / Dark theme">
           <svg id="themeIcon" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
           </svg>
-          <span id="themeLabel">Night Mode</span>
+          <span id="themeLabel">Dark</span>
         </button>
       </div>
-    </header>
+    </div>
 
     <!-- SIDE-BY-SIDE (DESKTOP) / STACKED (MOBILE) CONVERTER GRID -->
     <div class="converter-grid">
@@ -85,64 +54,52 @@
         <div class="panel-top">
           <div class="panel-header">
             <div class="panel-badge-group">
-              <span class="panel-label">From Timezone</span>
-              <span id="fromTod" class="tod-pill tod-day">Daytime</span>
+              <span class="panel-label">From</span>
+              <span id="fromTod" class="tod-pill tod-day">Day</span>
             </div>
             <span id="fromOffset" class="offset-pill">UTC+00:00</span>
           </div>
 
-          <div class="tz-picker">
-            <div class="search-wrap">
-              <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <div class="tz-combobox" id="fromCombo">
+            <input type="hidden" id="fromTz" value="UTC">
+            <div class="combo-control">
+              <svg class="combo-search-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="11" cy="11" r="7"/>
                 <path d="M20 20l-3.5-3.5"/>
               </svg>
               <input
                 type="text"
                 id="fromSearch"
-                class="tz-search"
-                placeholder="Filter city or UTC offset..."
+                class="combo-input"
+                placeholder="Search city, country, or UTC..."
                 autocomplete="off"
                 spellcheck="false"
-                aria-label="Filter From Timezones"
+                role="combobox"
+                aria-expanded="false"
+                aria-autocomplete="list"
+                aria-controls="fromList"
+                aria-label="From Timezone"
               >
-              <button type="button" id="fromClear" class="btn-clear" title="Clear filter" aria-label="Clear filter" hidden>
+              <button type="button" id="fromClear" class="btn-clear" title="Clear search" aria-label="Clear search" tabindex="-1" hidden>
                 <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
               </button>
+              <button type="button" id="fromToggle" class="btn-chevron" title="Toggle timezone list" aria-label="Toggle timezone list" tabindex="-1">
+                <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
             </div>
-
-            <div class="select-wrap">
-              <select id="fromTz" class="tz-select" aria-label="Select From Timezone"></select>
-              <span class="select-indicator" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M6 9l6 6 6-6"/>
-                </svg>
-              </span>
-            </div>
+            <div id="fromList" class="combo-dropdown" role="listbox" aria-label="From Timezone options" hidden></div>
           </div>
         </div>
 
         <div class="panel-bottom">
           <div class="datetime-grid">
             <div class="input-group">
-              <label for="dateInput" class="input-label">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <rect x="3" y="4" width="18" height="18" rx="2"/>
-                  <path d="M16 2v4M8 2v4M3 10h18"/>
-                </svg>
-                <span>Date</span>
-              </label>
+              <label for="dateInput" class="input-label">Date</label>
               <input type="date" id="dateInput" class="dt-input" required>
             </div>
 
             <div class="input-group">
-              <label for="timeInput" class="input-label">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9"/>
-                  <path d="M12 7v5l3 2"/>
-                </svg>
-                <span>Time</span>
-              </label>
+              <label for="timeInput" class="input-label">Time</label>
               <input type="time" id="timeInput" class="dt-input" step="60" required>
             </div>
           </div>
@@ -163,7 +120,6 @@
             <path d="M17 14l4 4-4 4"/>
             <path d="M21 18H3"/>
           </svg>
-          <span class="swap-text">Swap</span>
         </button>
       </div>
 
@@ -172,40 +128,40 @@
         <div class="panel-top">
           <div class="panel-header">
             <div class="panel-badge-group">
-              <span class="panel-label">To Timezone</span>
-              <span id="toTod" class="tod-pill tod-day">Daytime</span>
+              <span class="panel-label">To</span>
+              <span id="toTod" class="tod-pill tod-day">Day</span>
             </div>
             <span id="toOffset" class="offset-pill">UTC+00:00</span>
           </div>
 
-          <div class="tz-picker">
-            <div class="search-wrap">
-              <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <div class="tz-combobox" id="toCombo">
+            <input type="hidden" id="toTz" value="UTC">
+            <div class="combo-control">
+              <svg class="combo-search-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="11" cy="11" r="7"/>
                 <path d="M20 20l-3.5-3.5"/>
               </svg>
               <input
                 type="text"
                 id="toSearch"
-                class="tz-search"
-                placeholder="Filter city or UTC offset..."
+                class="combo-input"
+                placeholder="Search city, country, or UTC..."
                 autocomplete="off"
                 spellcheck="false"
-                aria-label="Filter To Timezones"
+                role="combobox"
+                aria-expanded="false"
+                aria-autocomplete="list"
+                aria-controls="toList"
+                aria-label="To Timezone"
               >
-              <button type="button" id="toClear" class="btn-clear" title="Clear filter" aria-label="Clear filter" hidden>
+              <button type="button" id="toClear" class="btn-clear" title="Clear search" aria-label="Clear search" tabindex="-1" hidden>
                 <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
               </button>
+              <button type="button" id="toToggle" class="btn-chevron" title="Toggle timezone list" aria-label="Toggle timezone list" tabindex="-1">
+                <svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
             </div>
-
-            <div class="select-wrap">
-              <select id="toTz" class="tz-select" aria-label="Select To Timezone"></select>
-              <span class="select-indicator" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
-                  <path d="M6 9l6 6 6-6"/>
-                </svg>
-              </span>
-            </div>
+            <div id="toList" class="combo-dropdown" role="listbox" aria-label="To Timezone options" hidden></div>
           </div>
         </div>
 
@@ -217,7 +173,7 @@
             </div>
 
             <div class="result-actions">
-              <span id="diffBadge" class="diff-badge">Same time</span>
+              <span id="diffBadge" class="diff-badge">0h</span>
               <button type="button" id="btnCopy" class="btn-copy" title="Copy converted time and date">
                 <svg id="copyIcon" viewBox="0 0 24 24" aria-hidden="true">
                   <rect x="9" y="9" width="13" height="13" rx="2"/>
@@ -241,7 +197,15 @@
 
     <!-- 24-HOUR INTERACTIVE TIMELINE SCRUBBER -->
     <section class="timeline-card" aria-label="24-Hour Timeline">
-      <div class="timeline-scroll">
+      <div class="timeline-header">
+        <span class="timeline-title">24h Comparison</span>
+        <div class="timeline-legend">
+          <span class="legend-item"><i class="legend-dot dot-work"></i>Overlap (9–17)</span>
+          <span class="legend-item"><i class="legend-dot dot-day"></i>Awake</span>
+          <span class="legend-item"><i class="legend-dot dot-night"></i>Night</span>
+        </div>
+      </div>
+      <div class="timeline-scroll" id="timelineScroll">
         <div id="timelineGrid" class="timeline-grid"></div>
       </div>
     </section>
